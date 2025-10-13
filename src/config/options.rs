@@ -592,6 +592,145 @@ macro_rules! config_option_with_style_edition_default {
     };
 }
 
+/// Bounds for blank lines in a specific context
+#[derive(Deserialize, Serialize, Clone, Debug, PartialEq, Eq)]
+pub struct BlankLineBounds {
+    pub upper: usize,
+    pub lower: usize,
+}
+
+impl BlankLineBounds {
+    pub fn new(upper: usize, lower: usize) -> Self {
+        BlankLineBounds { upper, lower }
+    }
+}
+
+impl Default for BlankLineBounds {
+    fn default() -> Self {
+        BlankLineBounds { upper: 1, lower: 0 }
+    }
+}
+
+impl fmt::Display for BlankLineBounds {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "[{}, {}]", self.lower, self.upper)
+    }
+}
+
+impl FromStr for BlankLineBounds {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        // Parse format: "[lower, upper]"
+        let s = s.trim();
+        if !s.starts_with('[') || !s.ends_with(']') {
+            return Err("BlankLineBounds must be in format [lower, upper]");
+        }
+        let inner = &s[1..s.len() - 1];
+        let parts: Vec<&str> = inner.split(',').map(|s| s.trim()).collect();
+        if parts.len() != 2 {
+            return Err("BlankLineBounds must have exactly two values: [lower, upper]");
+        }
+        let lower = parts[0]
+            .parse::<usize>()
+            .map_err(|_| "Invalid lower bound value")?;
+        let upper = parts[1]
+            .parse::<usize>()
+            .map_err(|_| "Invalid upper bound value")?;
+        Ok(BlankLineBounds { upper, lower })
+    }
+}
+
+impl crate::config::config_type::ConfigType for BlankLineBounds {
+    fn doc_hint() -> String {
+        "Blank line bounds [lower, upper]".to_string()
+    }
+}
+
+/// Configuration for blank lines in different code contexts
+#[derive(Deserialize, Serialize, Clone, Debug, PartialEq, Eq)]
+pub struct BlankLinesConfig {
+    pub top_level: BlankLineBounds,   // Between top-level items
+    pub impl_items: BlankLineBounds,  // Between methods in impl blocks
+    pub trait_items: BlankLineBounds, // Between methods in trait definitions
+    pub fn_body: BlankLineBounds,     // Between statements in function bodies
+    pub mod_items: BlankLineBounds,   // Between items inside mod blocks
+}
+
+impl Default for BlankLinesConfig {
+    fn default() -> Self {
+        BlankLinesConfig {
+            top_level: BlankLineBounds::new(1, 1),
+            impl_items: BlankLineBounds::new(0, 0),
+            trait_items: BlankLineBounds::new(0, 0),
+            fn_body: BlankLineBounds::new(0, 0),
+            mod_items: BlankLineBounds::new(1, 1),
+        }
+    }
+}
+
+impl fmt::Display for BlankLinesConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{{top_level: {}, impl_items: {}, trait_items: {}, fn_body: {}, mod_items: {}}}",
+            self.top_level, self.impl_items, self.trait_items, self.fn_body, self.mod_items
+        )
+    }
+}
+
+impl FromStr for BlankLinesConfig {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        // Parse JSON format like {"top_level": {"upper": 1, "lower": 1}}
+        let json: serde_json::Value =
+            serde_json::from_str(s).map_err(|_| "Invalid JSON format for BlankLinesConfig")?;
+
+        let mut config = BlankLinesConfig::default();
+
+        if let Some(obj) = json.as_object() {
+            for (key, value) in obj {
+                if let Some(bounds) = value.as_object() {
+                    let upper = bounds
+                        .get("upper")
+                        .and_then(|v| v.as_u64())
+                        .ok_or("Missing or invalid 'upper' value")?
+                        as usize;
+                    let lower = bounds
+                        .get("lower")
+                        .and_then(|v| v.as_u64())
+                        .ok_or("Missing or invalid 'lower' value")?
+                        as usize;
+
+                    let bounds = BlankLineBounds::new(upper, lower);
+
+                    match key.as_str() {
+                        "top_level" => config.top_level = bounds,
+                        "impl_items" => config.impl_items = bounds,
+                        "trait_items" => config.trait_items = bounds,
+                        "fn_body" => config.fn_body = bounds,
+                        "mod_items" => config.mod_items = bounds,
+                        _ => return Err("Unknown context key"),
+                    }
+                } else {
+                    return Err("Invalid bounds format");
+                }
+            }
+        } else {
+            return Err("Expected JSON object");
+        }
+
+        Ok(config)
+    }
+}
+
+impl crate::config::config_type::ConfigType for BlankLinesConfig {
+    fn doc_hint() -> String {
+        "Context-aware blank line configuration".to_string()
+    }
+}
+
 // TODO(ytmimi) Some of the configuration values have a `Config` suffix, while others don't.
 // I chose to add a `Config` suffix in cases where a type for the config option was already
 // defined. For example, `NewlineStyle` and `NewlineStyleConfig`. There was some discussion
@@ -676,6 +815,7 @@ config_option_with_style_edition_default!(
     MatchBlockTrailingComma, bool, _ => false;
     BlankLinesUpperBound, usize, _ => 1;
     BlankLinesLowerBound, usize, _ => 0;
+    BlankLinesByContext, BlankLinesConfig, _ => BlankLinesConfig::default();
     EditionConfig, Edition, _ => Edition::Edition2015;
     StyleEditionConfig, StyleEdition,
         Edition2024 => StyleEdition::Edition2024, _ => StyleEdition::Edition2015;

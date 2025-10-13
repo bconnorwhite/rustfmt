@@ -180,6 +180,64 @@ fn bar() {
 
 See also: [`blank_lines_lower_bound`](#blank_lines_lower_bound)
 
+## `blank_lines_by_context`
+
+Context-aware blank line configuration for different code contexts. Allows fine-grained control over blank lines between items in different contexts (top-level, impl blocks, trait definitions, function bodies, and module items).
+
+- **Default value**: See below
+- **Possible values**: A TOML table with contexts as keys and `{ upper = <int>, lower = <int> }` as values
+- **Stable**: No
+
+### Default values
+
+```toml
+[blank_lines_by_context.top_level]
+upper = 1
+lower = 1
+
+[blank_lines_by_context.impl_items]
+upper = 0
+lower = 0
+
+[blank_lines_by_context.trait_items]
+upper = 0
+lower = 0
+
+[blank_lines_by_context.fn_body]
+upper = 0
+lower = 0
+
+[blank_lines_by_context.mod_items]
+upper = 1
+lower = 1
+```
+
+### Example
+
+#### Default configuration:
+
+```toml
+[blank_lines_by_context.top_level]
+upper = 1
+lower = 1
+
+[blank_lines_by_context.impl_items]
+upper = 0
+lower = 0
+
+[blank_lines_by_context.trait_items]
+upper = 0
+lower = 0
+
+[blank_lines_by_context.fn_body]
+upper = 0
+lower = 0
+
+[blank_lines_by_context.mod_items]
+upper = 1
+lower = 1
+```
+
 ## `brace_style`
 
 Brace style for items

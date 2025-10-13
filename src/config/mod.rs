@@ -152,6 +152,8 @@ create_config! {
         "Maximum number of blank lines which can be put between items";
     blank_lines_lower_bound: BlankLinesLowerBound, false,
         "Minimum number of blank lines which must be put between items";
+    blank_lines_by_context: BlankLinesByContext, false,
+        "Context-aware blank line configuration for different code contexts";
     edition: EditionConfig, true, "The edition of the parser (RFC 2052)";
     style_edition: StyleEditionConfig, true, "The edition of the Style Guide (RFC 3338)";
     version: VersionConfig, false, "Version of formatting rules";
@@ -836,6 +838,26 @@ error_on_unformatted = false
 ignore = []
 emit_mode = "Files"
 make_backup = false
+
+[blank_lines_by_context.top_level]
+upper = 1
+lower = 1
+
+[blank_lines_by_context.impl_items]
+upper = 0
+lower = 0
+
+[blank_lines_by_context.trait_items]
+upper = 0
+lower = 0
+
+[blank_lines_by_context.fn_body]
+upper = 0
+lower = 0
+
+[blank_lines_by_context.mod_items]
+upper = 1
+lower = 1
 "#,
             env!("CARGO_PKG_VERSION")
         );
@@ -928,6 +950,26 @@ error_on_unformatted = false
 ignore = []
 emit_mode = "Files"
 make_backup = false
+
+[blank_lines_by_context.top_level]
+upper = 1
+lower = 1
+
+[blank_lines_by_context.impl_items]
+upper = 0
+lower = 0
+
+[blank_lines_by_context.trait_items]
+upper = 0
+lower = 0
+
+[blank_lines_by_context.fn_body]
+upper = 0
+lower = 0
+
+[blank_lines_by_context.mod_items]
+upper = 1
+lower = 1
 "#,
             env!("CARGO_PKG_VERSION")
         );
