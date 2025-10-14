@@ -2139,3 +2139,103 @@ fn main() {
         }
     }
 }
+
+/// Information about comments found in a span
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct CommentAnalysis {
+    /// Whether the span contains any comments
+    pub has_comments: bool,
+    /// Whether the span contains only blank lines (no comments)
+    pub is_only_blank_lines: bool,
+    /// The types of comments found (normal vs doc)
+    pub comment_types: Vec<CommentType>,
+    /// Whether comments are standalone (followed by blank line or different type)
+    pub is_standalone: bool,
+}
+
+/// Types of comments that can be found
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum CommentType {
+    Normal, // //
+    Doc,    // /// or //!
+}
+
+impl CommentType {
+    /// Determine comment type from comment text
+    pub(crate) fn from_comment_text(comment: &str) -> Self {
+        if comment.starts_with("///") || comment.starts_with("//!") {
+            CommentType::Doc
+        } else {
+            CommentType::Normal
+        }
+    }
+}
+
+/// Analyze comments in a span to determine grouping behavior
+pub(crate) fn analyze_comments_in_span(span_text: &str) -> CommentAnalysis {
+    let mut has_comments = false;
+    let mut comment_types = Vec::new();
+    let mut is_standalone = true;
+
+    // Check if span is only blank lines
+    let is_only_blank_lines = span_text.trim().is_empty() && span_text.contains('\n');
+
+    // Parse through the span to find comments
+    for (kind, _offset, subslice) in CommentCodeSlices::new(span_text) {
+        if kind == CodeCharKind::Comment {
+            has_comments = true;
+            let comment_type = CommentType::from_comment_text(subslice);
+            comment_types.push(comment_type);
+        }
+    }
+
+    // Determine if comments are standalone
+    if has_comments && !comment_types.is_empty() {
+        // Check if there are blank lines after the first comment
+        let first_comment_start = span_text.find("//").unwrap_or(0);
+        let after_first_comment = &span_text[first_comment_start..];
+
+        // If there are blank lines after the first comment, it's standalone
+        // Check if there are multiple newlines after the comment (indicating a blank line)
+        is_standalone = after_first_comment.contains("\n\n");
+
+        // Also standalone if we have mixed comment types
+        if comment_types.len() > 1 {
+            let first_type = comment_types[0];
+            is_standalone = comment_types.iter().any(|&t| t != first_type);
+        }
+    }
+
+    CommentAnalysis {
+        has_comments,
+        is_only_blank_lines,
+        comment_types,
+        is_standalone,
+    }
+}
+
+/// Analyze a gap between items to determine grouping behavior
+pub(crate) fn analyze_gap_for_grouping(gap_text: &str) -> GapAnalysis {
+    let comment_analysis = analyze_comments_in_span(gap_text);
+
+    // Count newlines in the gap
+    let newline_count = count_newlines(gap_text);
+
+    GapAnalysis {
+        has_comments: comment_analysis.has_comments,
+        comment_types: comment_analysis.comment_types,
+        is_standalone: comment_analysis.is_standalone,
+        newline_count,
+        has_blank_line: newline_count > 1,
+    }
+}
+
+/// Analysis of a gap between items
+#[derive(Debug, Clone)]
+pub(crate) struct GapAnalysis {
+    pub has_comments: bool,
+    pub comment_types: Vec<CommentType>,
+    pub is_standalone: bool,
+    pub newline_count: usize,
+    pub has_blank_line: bool,
+}

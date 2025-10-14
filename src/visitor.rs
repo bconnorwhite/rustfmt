@@ -7,7 +7,10 @@ use rustc_span::{BytePos, Ident, Pos, Span, symbol};
 use tracing::debug;
 
 use crate::attr::*;
-use crate::comment::{CodeCharKind, CommentCodeSlices, contains_comment, rewrite_comment};
+use crate::comment::{
+    CodeCharKind, CommentAnalysis, CommentCodeSlices, CommentType, analyze_comments_in_span,
+    contains_comment, rewrite_comment,
+};
 use crate::config::{BraceStyle, Config, MacroSelector, StyleEdition};
 use crate::coverage::transform_missing_snippet;
 use crate::items::{
@@ -69,6 +72,51 @@ impl SnippetProvider {
     }
 }
 
+/// Context for tracking blank lines by context feature
+#[derive(Debug, Clone)]
+pub(crate) struct BlankLinesContext {
+    /// Current context (top_level, impl_items, etc.)
+    pub current_context: BlankLinesContextType,
+    /// Information about the previous item/group
+    pub previous_item: Option<PreviousItemInfo>,
+    /// Whether we're currently in a group (comment + item)
+    pub in_group: bool,
+    /// Whether we've emitted at least one top-level item
+    pub emitted_first_top_level_item: bool,
+}
+
+/// Types of contexts for blank lines
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum BlankLinesContextType {
+    TopLevel,
+    ImplItems,
+    TraitItems,
+    FnBody,
+    ModItems,
+}
+
+/// Information about the previous item for grouping decisions
+#[derive(Debug, Clone)]
+pub(crate) struct PreviousItemInfo {
+    /// The type of the previous item
+    pub item_type: ast::ItemKind,
+    /// Whether the previous item had attached comments
+    pub had_attached_comments: bool,
+    /// The type of attached comments (if any)
+    pub comment_type: Option<CommentType>,
+}
+
+impl Default for BlankLinesContext {
+    fn default() -> Self {
+        BlankLinesContext {
+            current_context: BlankLinesContextType::TopLevel,
+            previous_item: None,
+            in_group: false,
+            emitted_first_top_level_item: false,
+        }
+    }
+}
+
 pub(crate) struct FmtVisitor<'a> {
     parent_context: Option<&'a RewriteContext<'a>>,
     pub(crate) psess: &'a ParseSess,
@@ -87,6 +135,8 @@ pub(crate) struct FmtVisitor<'a> {
     pub(crate) report: FormatReport,
     pub(crate) skip_context: SkipContext,
     pub(crate) is_macro_def: bool,
+    /// Context for blank lines by context feature
+    pub(crate) blank_lines_context: BlankLinesContext,
 }
 
 impl<'a> Drop for FmtVisitor<'a> {
@@ -433,6 +483,9 @@ impl<'b, 'a: 'b> FmtVisitor<'a> {
     pub(crate) fn visit_item(&mut self, item: &ast::Item) {
         skip_out_of_file_lines_range_visitor!(self, item.span);
 
+        // Insert blank lines before item if needed (for blank_lines_by_context)
+        self.insert_blank_lines_before_item(item);
+
         // This is where we bail out if there is a skip attribute. This is only
         // complex in the module case. It is complex because the module could be
         // in a separate file and there might be attributes in both files, but
@@ -488,15 +541,23 @@ impl<'b, 'a: 'b> FmtVisitor<'a> {
             match item.kind {
                 ast::ItemKind::Use(ref tree) => self.format_import(item, tree),
                 ast::ItemKind::Impl(ref iimpl) => {
+                    // Enter ImplItems context while formatting impl body
+                    let saved_context = self.blank_lines_context.current_context.clone();
+                    self.blank_lines_context.current_context = BlankLinesContextType::ImplItems;
                     let block_indent = self.block_indent;
                     let rw = self.with_context(|ctx| format_impl(ctx, item, iimpl, block_indent));
                     self.push_rewrite(item.span, rw.ok());
+                    self.blank_lines_context.current_context = saved_context;
                 }
                 ast::ItemKind::Trait(ref trait_kind) => {
+                    // Enter TraitItems context while formatting trait body
+                    let saved_context = self.blank_lines_context.current_context.clone();
+                    self.blank_lines_context.current_context = BlankLinesContextType::TraitItems;
                     let block_indent = self.block_indent;
                     let rw =
                         self.with_context(|ctx| format_trait(ctx, item, trait_kind, block_indent));
                     self.push_rewrite(item.span, rw.ok());
+                    self.blank_lines_context.current_context = saved_context;
                 }
                 ast::ItemKind::TraitAlias(ident, ref generics, ref generic_bounds) => {
                     let shape = Shape::indented(self.block_indent, self.config);
@@ -601,6 +662,9 @@ impl<'b, 'a: 'b> FmtVisitor<'a> {
             };
         }
         self.skip_context = skip_context_saved;
+
+        // Update boundary state after formatting item (for blank_lines_by_context)
+        self.update_blank_lines_context_after_item(item);
     }
 
     fn visit_ty_alias_kind(
@@ -809,6 +873,7 @@ impl<'b, 'a: 'b> FmtVisitor<'a> {
             macro_rewrite_failure: false,
             report,
             skip_context,
+            blank_lines_context: BlankLinesContext::default(),
         }
     }
 
@@ -966,10 +1031,15 @@ impl<'b, 'a: 'b> FmtVisitor<'a> {
             } else {
                 self.last_pos = mod_lo;
                 self.block_indent = self.block_indent.block_indent(self.config);
+                // Enter ModItems context while formatting the inline module body
+                let saved_context = self.blank_lines_context.current_context.clone();
+                self.blank_lines_context.current_context = BlankLinesContextType::ModItems;
                 self.visit_attrs(attrs, ast::AttrStyle::Inner);
                 self.walk_mod_items(items);
                 let missing_span = self.next_span(inner_span.hi() - BytePos(1));
                 self.close_block(missing_span, false);
+                // Restore previous context after module body
+                self.blank_lines_context.current_context = saved_context;
             }
             self.last_pos = source!(self, inner_span).hi();
         } else {
@@ -1026,6 +1096,114 @@ impl<'b, 'a: 'b> FmtVisitor<'a> {
             report: self.report.clone(),
             skip_context: self.skip_context.clone(),
             skipped_range: self.skipped_range.clone(),
+        }
+    }
+
+    /// Update blank lines context before visiting an item
+    pub(crate) fn update_blank_lines_context_before_item(&mut self, item: &ast::Item) {
+        // Analyze the gap between last_pos and the item to determine grouping
+        let gap_span = mk_sp(self.last_pos, item.span.lo());
+        let gap_text = self.snippet(gap_span);
+        let comment_analysis = analyze_comments_in_span(&gap_text);
+
+        // Check if we're transitioning between different "things"
+        let is_transition = self.should_apply_blank_lines_between_items(&comment_analysis);
+
+        // Update grouping state - we're in a group if comments are attached to this item
+        self.blank_lines_context.in_group = !is_transition && comment_analysis.has_comments;
+    }
+
+    /// Update blank lines context after visiting an item
+    pub(crate) fn update_blank_lines_context_after_item(&mut self, item: &ast::Item) {
+        // Store information about the current item for next iteration
+        let gap_span = mk_sp(self.last_pos, item.span.lo());
+        let gap_text = self.snippet(gap_span);
+        let comment_analysis = analyze_comments_in_span(&gap_text);
+
+        let had_attached_comments =
+            comment_analysis.has_comments && !comment_analysis.is_standalone;
+        let comment_type = comment_analysis.comment_types.first().copied();
+
+        self.blank_lines_context.previous_item = Some(PreviousItemInfo {
+            item_type: item.kind.clone(),
+            had_attached_comments,
+            comment_type,
+        });
+    }
+
+    /// Determine if we should apply blank lines between items based on comment analysis
+    fn should_apply_blank_lines_between_items(&self, comment_analysis: &CommentAnalysis) -> bool {
+        // If there are no comments in the gap, always apply blank lines
+        if !comment_analysis.has_comments {
+            return true;
+        }
+
+        // If comments are standalone (have blank lines after them), apply blank lines
+        if comment_analysis.is_standalone {
+            return true;
+        }
+
+        // If we have mixed comment types, apply blank lines
+        if comment_analysis.comment_types.len() > 1 {
+            let first_type = comment_analysis.comment_types[0];
+            if comment_analysis
+                .comment_types
+                .iter()
+                .any(|&t| t != first_type)
+            {
+                return true;
+            }
+        }
+
+        // Check if comment type matches previous item's comment type
+        if let Some(ref prev_item) = self.blank_lines_context.previous_item {
+            if let Some(prev_comment_type) = prev_item.comment_type {
+                if let Some(&current_comment_type) = comment_analysis.comment_types.first() {
+                    // If comment types are different, apply blank lines
+                    if prev_comment_type != current_comment_type {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        // If comments are attached to the next item (no blank lines), don't apply blank lines
+        false
+    }
+
+    /// Determine the current blank lines context based on visitor state
+    fn current_blank_lines_context(&self) -> BlankLinesContextType {
+        // Use the tracked context. Default is TopLevel at the crate root.
+        self.blank_lines_context.current_context.clone()
+    }
+
+    /// Check if we should insert a blank line before the given item
+    fn should_insert_blank_line_before_item(&self, _item: &ast::Item) -> bool {
+        // Always insert blank lines between items for top_level context
+        // The only exception is the first item in the file
+        self.blank_lines_context.previous_item.is_some()
+    }
+
+    /// Insert blank lines before an item if needed
+    pub(crate) fn insert_blank_lines_before_item(&mut self, item: &ast::Item) {
+        if !self.should_insert_blank_line_before_item(item) {
+            return;
+        }
+
+        // Only apply when the option was explicitly set, and only at crate root.
+        if !self.config.was_set().blank_lines_by_context() {
+            return;
+        }
+        // Only apply the rule at the crate root (TopLevel) for now.
+        if let BlankLinesContextType::TopLevel = self.current_blank_lines_context() {
+            // Avoid ever inserting at the very start of the file
+            if self.buffer.is_empty() || !self.blank_lines_context.emitted_first_top_level_item {
+                self.blank_lines_context.emitted_first_top_level_item = true;
+                return;
+            }
+            let bounds = self.config.blank_lines_by_context().top_level;
+            let blank_lines = "\n".repeat(bounds.lower);
+            self.push_str(&blank_lines);
         }
     }
 }

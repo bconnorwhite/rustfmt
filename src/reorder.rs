@@ -307,6 +307,13 @@ impl<'b, 'a: 'b> FmtVisitor<'a> {
             .any(|item| !out_of_file_lines_range!(self, item.span));
 
         if at_least_one_in_file_lines && !items.is_empty() {
+            // Update context before processing reorderable group
+            if let Some(first_item) = items.first() {
+                self.update_blank_lines_context_before_item(first_item);
+                // Insert blank lines before the group if needed
+                self.insert_blank_lines_before_item(first_item);
+            }
+
             let lo = items.first().unwrap().span().lo();
             let hi = items.last().unwrap().span().hi();
             let span = mk_sp(lo, hi);
@@ -317,6 +324,11 @@ impl<'b, 'a: 'b> FmtVisitor<'a> {
                 span,
             );
             self.push_rewrite(span, rw.ok());
+
+            // Update context after processing reorderable group
+            if let Some(last_item) = items.last() {
+                self.update_blank_lines_context_after_item(last_item);
+            }
         } else {
             for item in items {
                 self.push_rewrite(item.span, None);
@@ -346,7 +358,12 @@ impl<'b, 'a: 'b> FmtVisitor<'a> {
                 // Reaching here means items were not reordered. There must be at least
                 // one item left in `items`, so calling `unwrap()` here is safe.
                 let (item, rest) = items.split_first().unwrap();
+
+                // Update context before visiting the item
+                self.update_blank_lines_context_before_item(item);
                 self.visit_item(item);
+                self.update_blank_lines_context_after_item(item);
+
                 items = rest;
             }
         }
