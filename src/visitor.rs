@@ -83,6 +83,14 @@ pub(crate) struct BlankLinesContext {
     pub in_group: bool,
     /// Whether we've emitted at least one top-level item
     pub emitted_first_top_level_item: bool,
+    /// Whether we've emitted at least one item inside current inline module body
+    pub emitted_first_mod_item: bool,
+    /// Whether we've emitted at least one item inside current trait body
+    pub emitted_first_trait_item: bool,
+    /// Whether we've emitted at least one item inside current impl body
+    pub emitted_first_impl_item: bool,
+    /// Whether we've emitted at least one statement inside current fn body
+    pub emitted_first_fn_body_stmt: bool,
 }
 
 /// Types of contexts for blank lines
@@ -98,10 +106,6 @@ pub(crate) enum BlankLinesContextType {
 /// Information about the previous item for grouping decisions
 #[derive(Debug, Clone)]
 pub(crate) struct PreviousItemInfo {
-    /// The type of the previous item
-    pub item_type: ast::ItemKind,
-    /// Whether the previous item had attached comments
-    pub had_attached_comments: bool,
     /// The type of attached comments (if any)
     pub comment_type: Option<CommentType>,
 }
@@ -113,6 +117,10 @@ impl Default for BlankLinesContext {
             previous_item: None,
             in_group: false,
             emitted_first_top_level_item: false,
+            emitted_first_mod_item: false,
+            emitted_first_trait_item: false,
+            emitted_first_impl_item: false,
+            emitted_first_fn_body_stmt: false,
         }
     }
 }
@@ -164,6 +172,22 @@ impl<'b, 'a: 'b> FmtVisitor<'a> {
 
     fn visit_stmt(&mut self, stmt: &Stmt<'_>, include_empty_semi: bool) {
         debug!("visit_stmt: {}", self.psess.span_to_debug_info(stmt.span()));
+
+        // Insert blank line between fn body statements based on config
+        if self.config.was_set().blank_lines_by_context() {
+            if let BlankLinesContextType::FnBody = self.current_blank_lines_context() {
+                // Avoid before the first emitted statement in the fn body
+                if !self.blank_lines_context.emitted_first_fn_body_stmt {
+                    self.blank_lines_context.emitted_first_fn_body_stmt = true;
+                } else {
+                    let bounds = self.config.blank_lines_by_context().fn_body;
+                    if bounds.lower > 0 {
+                        let blank_lines = "\n".repeat(bounds.lower);
+                        self.push_str(&blank_lines);
+                    }
+                }
+            }
+        }
 
         if stmt.is_empty() {
             // If the statement is empty, just skip over it. Before that, make sure any comment
@@ -279,7 +303,15 @@ impl<'b, 'a: 'b> FmtVisitor<'a> {
             self.visit_attrs(attrs, ast::AttrStyle::Inner);
         }
 
+        // Switch to FnBody context for statement walking
+        let saved_context = self.blank_lines_context.current_context.clone();
+        let saved_first_stmt = self.blank_lines_context.emitted_first_fn_body_stmt;
+        self.blank_lines_context.current_context = BlankLinesContextType::FnBody;
+        self.blank_lines_context.emitted_first_fn_body_stmt = false;
         self.walk_block_stmts(b);
+        // Restore prior context
+        self.blank_lines_context.current_context = saved_context;
+        self.blank_lines_context.emitted_first_fn_body_stmt = saved_first_stmt;
 
         if !b.stmts.is_empty() {
             if let Some(expr) = stmt_expr(&b.stmts[b.stmts.len() - 1]) {
@@ -750,10 +782,42 @@ impl<'b, 'a: 'b> FmtVisitor<'a> {
     }
 
     pub(crate) fn visit_trait_item(&mut self, ti: &ast::AssocItem) {
+        // Insert blank lines between trait items based on config
+        if self.config.was_set().blank_lines_by_context() {
+            if let BlankLinesContextType::TraitItems = self.current_blank_lines_context() {
+                if !self.blank_lines_context.emitted_first_trait_item {
+                    self.blank_lines_context.emitted_first_trait_item = true;
+                } else {
+                    let bounds = self.config.blank_lines_by_context().trait_items;
+
+                    // Enforce lower bound by adding blank lines if needed
+                    if bounds.lower > 0 {
+                        let blank_lines = "\n".repeat(bounds.lower);
+                        self.push_str(&blank_lines);
+                    }
+                }
+            }
+        }
         self.visit_assoc_item(ti, ItemVisitorKind::AssocTraitItem);
     }
 
     pub(crate) fn visit_impl_item(&mut self, ii: &ast::AssocItem) {
+        // Insert blank lines between impl items based on config
+        if self.config.was_set().blank_lines_by_context() {
+            if let BlankLinesContextType::ImplItems = self.current_blank_lines_context() {
+                if !self.blank_lines_context.emitted_first_impl_item {
+                    self.blank_lines_context.emitted_first_impl_item = true;
+                } else {
+                    let bounds = self.config.blank_lines_by_context().impl_items;
+
+                    // Enforce lower bound by adding blank lines if needed
+                    if bounds.lower > 0 {
+                        let blank_lines = "\n".repeat(bounds.lower);
+                        self.push_str(&blank_lines);
+                    }
+                }
+            }
+        }
         self.visit_assoc_item(ii, ItemVisitorKind::AssocImplItem);
     }
 
@@ -1120,15 +1184,14 @@ impl<'b, 'a: 'b> FmtVisitor<'a> {
         let gap_text = self.snippet(gap_span);
         let comment_analysis = analyze_comments_in_span(&gap_text);
 
-        let had_attached_comments =
-            comment_analysis.has_comments && !comment_analysis.is_standalone;
         let comment_type = comment_analysis.comment_types.first().copied();
 
-        self.blank_lines_context.previous_item = Some(PreviousItemInfo {
-            item_type: item.kind.clone(),
-            had_attached_comments,
-            comment_type,
-        });
+        self.blank_lines_context.previous_item = Some(PreviousItemInfo { comment_type });
+
+        // Mark that we've emitted a top-level item (for blank_lines_by_context)
+        if let BlankLinesContextType::TopLevel = self.current_blank_lines_context() {
+            self.blank_lines_context.emitted_first_top_level_item = true;
+        }
     }
 
     /// Determine if we should apply blank lines between items based on comment analysis
@@ -1172,7 +1235,7 @@ impl<'b, 'a: 'b> FmtVisitor<'a> {
     }
 
     /// Determine the current blank lines context based on visitor state
-    fn current_blank_lines_context(&self) -> BlankLinesContextType {
+    pub(crate) fn current_blank_lines_context(&self) -> BlankLinesContextType {
         // Use the tracked context. Default is TopLevel at the crate root.
         self.blank_lines_context.current_context.clone()
     }
@@ -1190,20 +1253,62 @@ impl<'b, 'a: 'b> FmtVisitor<'a> {
             return;
         }
 
-        // Only apply when the option was explicitly set, and only at crate root.
+        // Only apply when the option was explicitly set, and only in supported contexts.
         if !self.config.was_set().blank_lines_by_context() {
             return;
         }
-        // Only apply the rule at the crate root (TopLevel) for now.
-        if let BlankLinesContextType::TopLevel = self.current_blank_lines_context() {
-            // Avoid ever inserting at the very start of the file
-            if self.buffer.is_empty() || !self.blank_lines_context.emitted_first_top_level_item {
-                self.blank_lines_context.emitted_first_top_level_item = true;
-                return;
+
+        match self.current_blank_lines_context() {
+            BlankLinesContextType::TopLevel => {
+                if self.buffer.is_empty() || !self.blank_lines_context.emitted_first_top_level_item
+                {
+                    self.blank_lines_context.emitted_first_top_level_item = true;
+                    return;
+                }
+                let bounds = self.config.blank_lines_by_context().top_level;
+                if bounds.lower > 0 {
+                    let blank_lines = "\n".repeat(bounds.lower);
+                    self.push_str(&blank_lines);
+                }
             }
-            let bounds = self.config.blank_lines_by_context().top_level;
-            let blank_lines = "\n".repeat(bounds.lower);
-            self.push_str(&blank_lines);
+            BlankLinesContextType::ModItems => {
+                if !self.blank_lines_context.emitted_first_mod_item {
+                    self.blank_lines_context.emitted_first_mod_item = true;
+                    return;
+                }
+                let bounds = self.config.blank_lines_by_context().mod_items;
+                if bounds.lower > 0 {
+                    let blank_lines = "\n".repeat(bounds.lower);
+                    self.push_str(&blank_lines);
+                }
+            }
+            BlankLinesContextType::TraitItems => {
+                if !self.blank_lines_context.emitted_first_trait_item {
+                    self.blank_lines_context.emitted_first_trait_item = true;
+                    return;
+                }
+                let bounds = self.config.blank_lines_by_context().trait_items;
+                if bounds.lower > 0 {
+                    let blank_lines = "\n".repeat(bounds.lower);
+                    self.push_str(&blank_lines);
+                }
+                // For trait items with 0 bounds, we don't insert any blank lines
+            }
+            BlankLinesContextType::ImplItems => {
+                if !self.blank_lines_context.emitted_first_impl_item {
+                    self.blank_lines_context.emitted_first_impl_item = true;
+                    return;
+                }
+                let bounds = self.config.blank_lines_by_context().impl_items;
+                if bounds.lower > 0 {
+                    let blank_lines = "\n".repeat(bounds.lower);
+                    self.push_str(&blank_lines);
+                }
+                // For impl items with 0 bounds, we don't insert any blank lines
+            }
+            BlankLinesContextType::FnBody => {
+                // This entry point is for items; fn body statements are handled elsewhere.
+            }
         }
     }
 }

@@ -593,7 +593,7 @@ macro_rules! config_option_with_style_edition_default {
 }
 
 /// Bounds for blank lines in a specific context
-#[derive(Deserialize, Serialize, Clone, Debug, PartialEq, Eq)]
+#[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct BlankLineBounds {
     pub upper: usize,
     pub lower: usize,
@@ -607,7 +607,10 @@ impl BlankLineBounds {
 
 impl Default for BlankLineBounds {
     fn default() -> Self {
-        BlankLineBounds { upper: 1, lower: 0 }
+        BlankLineBounds {
+            upper: u32::MAX as usize,
+            lower: 0,
+        }
     }
 }
 
@@ -647,6 +650,19 @@ impl crate::config::config_type::ConfigType for BlankLineBounds {
     }
 }
 
+impl Serialize for BlankLineBounds {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        use serde::ser::SerializeMap;
+        let mut map = serializer.serialize_map(Some(2))?;
+        map.serialize_entry("upper", &self.upper)?;
+        map.serialize_entry("lower", &self.lower)?;
+        map.end()
+    }
+}
+
 /// Configuration for blank lines in different code contexts
 #[derive(Deserialize, Serialize, Clone, Debug, PartialEq, Eq)]
 pub struct BlankLinesConfig {
@@ -660,11 +676,11 @@ pub struct BlankLinesConfig {
 impl Default for BlankLinesConfig {
     fn default() -> Self {
         BlankLinesConfig {
-            top_level: BlankLineBounds::new(1, 1),
-            impl_items: BlankLineBounds::new(0, 0),
-            trait_items: BlankLineBounds::new(0, 0),
-            fn_body: BlankLineBounds::new(0, 0),
-            mod_items: BlankLineBounds::new(1, 1),
+            top_level: BlankLineBounds::new(u32::MAX as usize, 0),
+            impl_items: BlankLineBounds::new(u32::MAX as usize, 0),
+            trait_items: BlankLineBounds::new(u32::MAX as usize, 0),
+            fn_body: BlankLineBounds::new(u32::MAX as usize, 0),
+            mod_items: BlankLineBounds::new(u32::MAX as usize, 0),
         }
     }
 }

@@ -192,25 +192,36 @@ Context-aware blank line configuration for different code contexts. Allows fine-
 
 ```toml
 [blank_lines_by_context.top_level]
-upper = 1
-lower = 1
+upper = 4294967295
+lower = 0
 
 [blank_lines_by_context.impl_items]
-upper = 0
+upper = 4294967295
 lower = 0
 
 [blank_lines_by_context.trait_items]
-upper = 0
+upper = 4294967295
 lower = 0
 
 [blank_lines_by_context.fn_body]
-upper = 0
+upper = 4294967295
 lower = 0
 
 [blank_lines_by_context.mod_items]
-upper = 1
-lower = 1
+upper = 4294967295
+lower = 0
 ```
+
+**Note**: Special values for bounds:
+- `upper = 4294967295` (u32::MAX): No maximum (won't remove blank lines)
+- `lower = 0`: No minimum (won't add blank lines)
+- `upper = 0`: Enforce zero blank lines (remove all blanks)
+- `lower = 1` or higher: Enforce at least that many blank lines
+- `upper = 1` or higher: Enforce at most that many blank lines
+
+By default, all contexts are set to `upper = 4294967295, lower = 0`, 
+which means the feature is disabled and no changes are made unless you explicitly 
+configure specific bounds.
 
 ### Example
 
@@ -218,24 +229,24 @@ lower = 1
 
 ```toml
 [blank_lines_by_context.top_level]
-upper = 1
-lower = 1
+upper = 4294967295
+lower = 0
 
 [blank_lines_by_context.impl_items]
-upper = 0
+upper = 4294967295
 lower = 0
 
 [blank_lines_by_context.trait_items]
-upper = 0
+upper = 4294967295
 lower = 0
 
 [blank_lines_by_context.fn_body]
-upper = 0
+upper = 4294967295
 lower = 0
 
 [blank_lines_by_context.mod_items]
-upper = 1
-lower = 1
+upper = 4294967295
+lower = 0
 ```
 
 ## `brace_style`

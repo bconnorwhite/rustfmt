@@ -73,8 +73,17 @@ fn wrap_reorderable_items(
     list_items: &[ListItem],
     shape: Shape,
 ) -> RewriteResult {
+    // Determine separator based on blank_lines_by_context settings
+    let separator = if context.config.was_set().blank_lines_by_context() {
+        // For now, we'll use the default behavior and let the visitor handle blank lines
+        // This is a placeholder for future enhancement
+        ""
+    } else {
+        ""
+    };
+
     let fmt = ListFormatting::new(shape, context.config)
-        .separator("")
+        .separator(separator)
         .align_comments(false);
     write_list(list_items, &fmt)
 }
@@ -331,7 +340,10 @@ impl<'b, 'a: 'b> FmtVisitor<'a> {
             }
         } else {
             for item in items {
-                self.push_rewrite(item.span, None);
+                // Update context before visiting the item
+                self.update_blank_lines_context_before_item(item);
+                self.visit_item(item);
+                self.update_blank_lines_context_after_item(item);
             }
         }
 

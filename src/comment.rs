@@ -2213,29 +2213,3 @@ pub(crate) fn analyze_comments_in_span(span_text: &str) -> CommentAnalysis {
         is_standalone,
     }
 }
-
-/// Analyze a gap between items to determine grouping behavior
-pub(crate) fn analyze_gap_for_grouping(gap_text: &str) -> GapAnalysis {
-    let comment_analysis = analyze_comments_in_span(gap_text);
-
-    // Count newlines in the gap
-    let newline_count = count_newlines(gap_text);
-
-    GapAnalysis {
-        has_comments: comment_analysis.has_comments,
-        comment_types: comment_analysis.comment_types,
-        is_standalone: comment_analysis.is_standalone,
-        newline_count,
-        has_blank_line: newline_count > 1,
-    }
-}
-
-/// Analysis of a gap between items
-#[derive(Debug, Clone)]
-pub(crate) struct GapAnalysis {
-    pub has_comments: bool,
-    pub comment_types: Vec<CommentType>,
-    pub is_standalone: bool,
-    pub newline_count: usize,
-    pub has_blank_line: bool,
-}

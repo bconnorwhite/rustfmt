@@ -1,6 +1,7 @@
 // rustfmt-blank_lines_by_context:{"top_level":{"upper":1,"lower":1}}
 use a;
 use b;
+
 // Import Comment
 use c;
 

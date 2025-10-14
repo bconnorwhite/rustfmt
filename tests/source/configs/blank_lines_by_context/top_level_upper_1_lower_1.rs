@@ -5,6 +5,8 @@ use b;
 use c;
 // Standalone Comment
 
+
+
 // Normal Comment
 fn foo() {}
 // Multi-line
@@ -37,16 +39,16 @@ impl Foo1 {
 }
 /// Doc Comment
 impl Foo2 {
-  fn a() {}
-  fn b() {}
+    fn a() {}
+    fn b() {}
 }
 impl Foo3 {
-  fn a() {}
-  fn b() {}
+    fn a() {}
+    fn b() {}
 }
 #[cfg(x)]
 mod x {
-  use y;
-  fn a() {}
-  fn b() {}
+    use y;
+    fn a() {}
+    fn b() {}
 }

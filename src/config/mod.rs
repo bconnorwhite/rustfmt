@@ -840,24 +840,24 @@ emit_mode = "Files"
 make_backup = false
 
 [blank_lines_by_context.top_level]
-upper = 1
-lower = 1
+upper = 4294967295
+lower = 0
 
 [blank_lines_by_context.impl_items]
-upper = 0
+upper = 4294967295
 lower = 0
 
 [blank_lines_by_context.trait_items]
-upper = 0
+upper = 4294967295
 lower = 0
 
 [blank_lines_by_context.fn_body]
-upper = 0
+upper = 4294967295
 lower = 0
 
 [blank_lines_by_context.mod_items]
-upper = 1
-lower = 1
+upper = 4294967295
+lower = 0
 "#,
             env!("CARGO_PKG_VERSION")
         );
@@ -952,24 +952,24 @@ emit_mode = "Files"
 make_backup = false
 
 [blank_lines_by_context.top_level]
-upper = 1
-lower = 1
+upper = 4294967295
+lower = 0
 
 [blank_lines_by_context.impl_items]
-upper = 0
+upper = 4294967295
 lower = 0
 
 [blank_lines_by_context.trait_items]
-upper = 0
+upper = 4294967295
 lower = 0
 
 [blank_lines_by_context.fn_body]
-upper = 0
+upper = 4294967295
 lower = 0
 
 [blank_lines_by_context.mod_items]
-upper = 1
-lower = 1
+upper = 4294967295
+lower = 0
 "#,
             env!("CARGO_PKG_VERSION")
         );
