@@ -103,11 +103,18 @@ pub(crate) enum BlankLinesContextType {
     ModItems,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TopLevelSpacingGroup {
+    ConstLike,
+    Other,
+}
+
 /// Information about the previous item for grouping decisions
 #[derive(Debug, Clone)]
 pub(crate) struct PreviousItemInfo {
     /// The type of attached comments (if any)
     pub comment_type: Option<CommentType>,
+    top_level_spacing_group: TopLevelSpacingGroup,
 }
 
 impl Default for BlankLinesContext {
@@ -1238,7 +1245,10 @@ impl<'b, 'a: 'b> FmtVisitor<'a> {
 
         let comment_type = comment_analysis.comment_types.first().copied();
 
-        self.blank_lines_context.previous_item = Some(PreviousItemInfo { comment_type });
+        self.blank_lines_context.previous_item = Some(PreviousItemInfo {
+            comment_type,
+            top_level_spacing_group: Self::top_level_spacing_group(item),
+        });
 
         // Mark that we've emitted a top-level item (for blank_lines_by_context)
         if let BlankLinesContextType::TopLevel = self.current_blank_lines_context() {
@@ -1293,10 +1303,28 @@ impl<'b, 'a: 'b> FmtVisitor<'a> {
     }
 
     /// Check if we should insert a blank line before the given item
-    fn should_insert_blank_line_before_item(&self, _item: &ast::Item) -> bool {
-        // Always insert blank lines between items for top_level context
-        // The only exception is the first item in the file
-        self.blank_lines_context.previous_item.is_some()
+    fn should_insert_blank_line_before_item(&self, item: &ast::Item) -> bool {
+        let Some(previous_item) = self.blank_lines_context.previous_item.as_ref() else {
+            return false;
+        };
+
+        if matches!(
+            self.current_blank_lines_context(),
+            BlankLinesContextType::TopLevel
+        ) && previous_item.top_level_spacing_group == TopLevelSpacingGroup::ConstLike
+            && Self::top_level_spacing_group(item) == TopLevelSpacingGroup::ConstLike
+        {
+            return false;
+        }
+
+        true
+    }
+
+    fn top_level_spacing_group(item: &ast::Item) -> TopLevelSpacingGroup {
+        match item.kind {
+            ast::ItemKind::Const(..) | ast::ItemKind::Static(..) => TopLevelSpacingGroup::ConstLike,
+            _ => TopLevelSpacingGroup::Other,
+        }
     }
 
     /// Insert blank lines before an item if needed
