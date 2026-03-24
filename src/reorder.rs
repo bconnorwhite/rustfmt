@@ -12,6 +12,7 @@ use rustc_ast::{ast, attr};
 use rustc_span::{Span, symbol::sym};
 
 use crate::StyleEdition;
+use crate::comment::analyze_comments_in_span;
 use crate::config::{Config, GroupImportsTactic};
 use crate::imports::{UseSegmentKind, UseTree, normalize_use_trees_with_granularity};
 use crate::items::{is_mod_decl, rewrite_extern_crate, rewrite_mod};
@@ -297,7 +298,7 @@ impl<'b, 'a: 'b> FmtVisitor<'a> {
         in_group: bool,
     ) -> usize {
         let mut last = self.psess.lookup_line_range(items[0].span());
-        let item_length = items
+        let mut item_length = items
             .iter()
             .take_while(|ppi| {
                 item_kind.is_same_item_kind(&***ppi)
@@ -309,6 +310,15 @@ impl<'b, 'a: 'b> FmtVisitor<'a> {
                     })
             })
             .count();
+
+        let has_attached_leading_comment = item_kind == ReorderableItemKind::Use
+            && item_length > 0
+            && self.use_item_has_attached_leading_comment(items[0]);
+
+        if has_attached_leading_comment {
+            item_length = 1;
+        }
+
         let items = &items[..item_length];
 
         let at_least_one_in_file_lines = items
@@ -323,7 +333,11 @@ impl<'b, 'a: 'b> FmtVisitor<'a> {
                 self.insert_blank_lines_before_item(first_item);
             }
 
-            let lo = items.first().unwrap().span().lo();
+            let lo = if has_attached_leading_comment {
+                self.last_pos
+            } else {
+                items.first().unwrap().span().lo()
+            };
             let hi = items.last().unwrap().span().hi();
             let span = mk_sp(lo, hi);
             let rw = rewrite_reorderable_or_regroupable_items(
@@ -348,6 +362,26 @@ impl<'b, 'a: 'b> FmtVisitor<'a> {
         }
 
         item_length
+    }
+
+    fn use_item_has_attached_leading_comment(&self, item: &ast::Item) -> bool {
+        if !self.config.was_set().blank_lines_by_context() {
+            return false;
+        }
+
+        if !matches!(
+            self.current_blank_lines_context(),
+            crate::visitor::BlankLinesContextType::TopLevel
+                | crate::visitor::BlankLinesContextType::ModItems
+        ) {
+            return false;
+        }
+
+        let gap = self.snippet(mk_sp(self.last_pos, item.span.lo()));
+        let comment_analysis = analyze_comments_in_span(&gap);
+
+        comment_analysis.has_comments
+            && !self.should_apply_blank_lines_between_items(&comment_analysis)
     }
 
     /// Visits and format the given items. Items are reordered If they are

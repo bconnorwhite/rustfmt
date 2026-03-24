@@ -1257,7 +1257,10 @@ impl<'b, 'a: 'b> FmtVisitor<'a> {
     }
 
     /// Determine if we should apply blank lines between items based on comment analysis
-    fn should_apply_blank_lines_between_items(&self, comment_analysis: &CommentAnalysis) -> bool {
+    pub(crate) fn should_apply_blank_lines_between_items(
+        &self,
+        comment_analysis: &CommentAnalysis,
+    ) -> bool {
         // If there are no comments in the gap, always apply blank lines
         if !comment_analysis.has_comments {
             return true;
