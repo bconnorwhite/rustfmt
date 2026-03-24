@@ -180,8 +180,10 @@ impl<'b, 'a: 'b> FmtVisitor<'a> {
                 if !self.blank_lines_context.emitted_first_fn_body_stmt {
                     self.blank_lines_context.emitted_first_fn_body_stmt = true;
                 } else {
+                    let handled_fn_body_gap = self.normalize_fn_body_stmt_gap(stmt.span().lo());
+
                     let bounds = self.config.blank_lines_by_context().fn_body;
-                    if bounds.lower > 0 {
+                    if !handled_fn_body_gap && bounds.lower > 0 {
                         let blank_lines = "\n".repeat(bounds.lower);
                         self.push_str(&blank_lines);
                     }
@@ -781,6 +783,48 @@ impl<'b, 'a: 'b> FmtVisitor<'a> {
         }
     }
 
+    fn trim_blank_lines_before_next_chunk(&mut self, end: BytePos) {
+        let gap_span = mk_sp(self.last_pos, end);
+        let gap = self.snippet(gap_span);
+
+        if gap.trim().is_empty() {
+            self.last_pos = end;
+            return;
+        }
+
+        if let Some(prefix_len) = gap
+            .char_indices()
+            .find_map(|(idx, ch)| (!ch.is_whitespace()).then_some(idx))
+        {
+            let prefix = &gap[..prefix_len];
+            if count_newlines(prefix) > 1 {
+                if let Some(last_newline) = prefix.rfind('\n') {
+                    self.last_pos = self.last_pos + BytePos::from_usize(last_newline);
+                }
+            }
+        }
+    }
+
+    fn normalize_fn_body_stmt_gap(&mut self, end: BytePos) -> bool {
+        let gap_span = mk_sp(self.last_pos, end);
+        let gap = self.snippet(gap_span);
+
+        if !gap.trim().is_empty() {
+            return false;
+        }
+
+        let bounds = self.config.blank_lines_by_context().fn_body;
+        let blank_lines = count_newlines(gap).saturating_sub(1);
+        let clamped_blank_lines = blank_lines.clamp(bounds.lower, bounds.upper);
+
+        self.last_pos = end;
+        if clamped_blank_lines > 0 {
+            self.push_str(&"\n".repeat(clamped_blank_lines));
+        }
+
+        true
+    }
+
     pub(crate) fn visit_trait_item(&mut self, ti: &ast::AssocItem) {
         // Insert blank lines between trait items based on config
         if self.config.was_set().blank_lines_by_context() {
@@ -789,6 +833,10 @@ impl<'b, 'a: 'b> FmtVisitor<'a> {
                     self.blank_lines_context.emitted_first_trait_item = true;
                 } else {
                     let bounds = self.config.blank_lines_by_context().trait_items;
+
+                    if bounds.upper == 0 {
+                        self.trim_blank_lines_before_next_chunk(ti.span.lo());
+                    }
 
                     // Enforce lower bound by adding blank lines if needed
                     if bounds.lower > 0 {
@@ -809,6 +857,10 @@ impl<'b, 'a: 'b> FmtVisitor<'a> {
                     self.blank_lines_context.emitted_first_impl_item = true;
                 } else {
                     let bounds = self.config.blank_lines_by_context().impl_items;
+
+                    if bounds.upper == 0 {
+                        self.trim_blank_lines_before_next_chunk(ii.span.lo());
+                    }
 
                     // Enforce lower bound by adding blank lines if needed
                     if bounds.lower > 0 {

@@ -913,18 +913,7 @@ pub(crate) fn format_impl(
         let outer_indent_str = offset.block_only().to_string_with_newline(context.config);
 
         result.push_str(&inner_indent_str);
-        let trimmed_buffer = if context.config.was_set().blank_lines_by_context() {
-            let bounds = context.config.blank_lines_by_context().impl_items;
-            if bounds.upper == 0 {
-                // For upper=0, remove all blank lines between items
-                remove_blank_lines_between_items(&visitor.buffer)
-            } else {
-                visitor.buffer.trim().to_string()
-            }
-        } else {
-            visitor.buffer.trim().to_string()
-        };
-        result.push_str(&trimmed_buffer);
+        result.push_str(visitor.buffer.trim());
         result.push_str(&outer_indent_str);
     } else if need_newline || !context.config.empty_item_single_line() {
         result.push_str(&sep);
@@ -1331,18 +1320,7 @@ pub(crate) fn format_trait(
         let inner_indent_str = visitor.block_indent.to_string_with_newline(context.config);
 
         result.push_str(&inner_indent_str);
-        let trimmed_buffer = if context.config.was_set().blank_lines_by_context() {
-            let bounds = context.config.blank_lines_by_context().trait_items;
-            if bounds.upper == 0 {
-                // For upper=0, remove all blank lines between items
-                remove_blank_lines_between_items(&visitor.buffer)
-            } else {
-                visitor.buffer.trim().to_string()
-            }
-        } else {
-            visitor.buffer.trim().to_string()
-        };
-        result.push_str(&trimmed_buffer);
+        result.push_str(visitor.buffer.trim());
         result.push_str(&outer_indent_str);
     } else if result.contains('\n') {
         result.push_str(&outer_indent_str);
@@ -3625,23 +3603,4 @@ pub(crate) fn is_use_item(item: &ast::Item) -> bool {
 
 pub(crate) fn is_extern_crate(item: &ast::Item) -> bool {
     matches!(item.kind, ast::ItemKind::ExternCrate(..))
-}
-
-/// Remove blank lines between items, keeping only single newlines
-fn remove_blank_lines_between_items(s: &str) -> String {
-    // First, trim the start to remove any leading whitespace/newlines
-    let trimmed = s.trim_start();
-    let lines: Vec<&str> = trimmed.lines().collect();
-    let mut result = Vec::new();
-
-    for line in lines.iter() {
-        // Skip empty lines
-        if line.trim().is_empty() {
-            continue;
-        }
-
-        result.push(*line);
-    }
-
-    result.join("\n")
 }
