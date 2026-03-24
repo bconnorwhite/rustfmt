@@ -357,7 +357,6 @@ impl<'b, 'a: 'b> FmtVisitor<'a> {
                 // Update context before visiting the item
                 self.update_blank_lines_context_before_item(item);
                 self.visit_item(item);
-                self.update_blank_lines_context_after_item(item);
             }
         }
 
@@ -408,7 +407,6 @@ impl<'b, 'a: 'b> FmtVisitor<'a> {
                 // Update context before visiting the item
                 self.update_blank_lines_context_before_item(item);
                 self.visit_item(item);
-                self.update_blank_lines_context_after_item(item);
 
                 items = rest;
             }
